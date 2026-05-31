@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "name": "CORA",
+    "slug": "cora",
+    "version": "1.0.0",
+    "extra": {
+      "eas": {
+        "projectId": "61d3fe3c-58a4-430d-8892-4f2f4c6cfdd0"
+      }
+    }
+  }
+}

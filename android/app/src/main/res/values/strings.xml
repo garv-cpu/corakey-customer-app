@@ -1,0 +1,6 @@
+<!-- Android string resources for app and Device Admin dialog. -->
+<resources>
+    <string name="app_name">EMI Locker</string>
+    <string name="device_admin_label">CORA EMI Device Control</string>
+    <string name="device_admin_description">Allows CORA to lock this financed phone when EMI payments are overdue.</string>
+</resources>

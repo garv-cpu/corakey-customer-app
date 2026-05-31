@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "573732334584",
+    "project_id": "cora-mdm",
+    "storage_bucket": "cora-mdm.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:573732334584:android:e9e278f7999c9a19f8440d",
+        "android_client_info": {
+          "package_name": "com.emilockercustomer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAmYrdbmPjad94q8PUCpUShDwCqrS5PNsE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

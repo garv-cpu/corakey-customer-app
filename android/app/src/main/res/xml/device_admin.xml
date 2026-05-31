@@ -1,0 +1,8 @@
+<!-- Device Admin policies CORA needs for immediate system lock. -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+        <wipe-data />
+        <reset-password />
+    </uses-policies>
+</device-admin>
