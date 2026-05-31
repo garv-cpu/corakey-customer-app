@@ -4,7 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "rea
 import messaging from "@react-native-firebase/messaging";
 import api, { setBackendUrl } from "../services/api";
 import { initializeFcm } from "../services/fcmService";
-import { startLockService } from "../services/deviceAdmin";
+import { applyDeviceOwnerPolicies, startLockService } from "../services/deviceAdmin";
 import { getIMEI, getProvisioningData } from "../services/provisioningService";
 import { saveCustomer, saveFcmToken, saveRegistered } from "../utils/storage";
 
@@ -36,6 +36,7 @@ export default function SetupScreen({ navigation }) {
       });
 
       const data = response.data.data;
+      await applyDeviceOwnerPolicies();
       await saveFcmToken(fcmToken);
       await saveCustomer({
         customerId: data.customerId || provisioningData.customerId,

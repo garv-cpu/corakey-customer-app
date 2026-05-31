@@ -30,7 +30,6 @@ public class DeviceAdminReceiver extends android.app.admin.DeviceAdminReceiver {
     public void onProfileProvisioningComplete(Context context, Intent intent) {
         super.onProfileProvisioningComplete(context, intent);
         persistProvisioningExtras(context, intent);
-        startMonitoring(context);
         context.sendBroadcast(new Intent(ACTION_PROVISIONING_DONE).setPackage(context.getPackageName()));
         launchMainApp(context);
         Log.i(TAG, "Device owner provisioning complete");
@@ -38,7 +37,6 @@ public class DeviceAdminReceiver extends android.app.admin.DeviceAdminReceiver {
 
     public void onDeviceOwnerChanged(Context context, Intent intent) {
         persistProvisioningExtras(context, intent);
-        startMonitoring(context);
         context.sendBroadcast(new Intent(ACTION_PROVISIONING_DONE).setPackage(context.getPackageName()));
         launchMainApp(context);
         Log.i(TAG, "Device owner changed");
@@ -61,15 +59,6 @@ public class DeviceAdminReceiver extends android.app.admin.DeviceAdminReceiver {
             .putBoolean("provisioning_complete", true)
             .apply();
         Log.i(TAG, "Provisioning extras saved for customer=" + extras.getString("customerId", ""));
-    }
-
-    private void startMonitoring(Context context) {
-        Intent serviceIntent = new Intent(context, LockForegroundService.class);
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            context.startForegroundService(serviceIntent);
-        } else {
-            context.startService(serviceIntent);
-        }
     }
 
     private void launchMainApp(Context context) {

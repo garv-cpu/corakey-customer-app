@@ -8,6 +8,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.os.UserManager;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.telephony.TelephonyManager;
@@ -150,6 +151,34 @@ public class DeviceAdminModule extends ReactContextBaseJavaModule {
             promise.resolve(true);
         } catch (Exception error) {
             promise.reject("SERVICE_START_FAILED", error);
+        }
+    }
+
+    @ReactMethod
+    public void applyDeviceOwnerPolicies(Promise promise) {
+        try {
+            DevicePolicyManager dpm = getDevicePolicyManager();
+            ComponentName adminComponent = getAdminComponent();
+
+            if (!dpm.isDeviceOwnerApp(reactContext.getPackageName())) {
+                promise.reject("NOT_DEVICE_OWNER", "CORA is not device owner");
+                return;
+            }
+
+            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_FACTORY_RESET);
+            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_SAFE_BOOT);
+            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER);
+            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_REMOVE_USER);
+            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_DEBUGGING_FEATURES);
+            dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_MOUNT_PHYSICAL_MEDIA);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                dpm.addUserRestriction(adminComponent, UserManager.DISALLOW_CONFIG_PRIVATE_DNS);
+            }
+
+            promise.resolve(true);
+        } catch (Exception error) {
+            promise.reject("POLICY_APPLY_FAILED", error);
         }
     }
 

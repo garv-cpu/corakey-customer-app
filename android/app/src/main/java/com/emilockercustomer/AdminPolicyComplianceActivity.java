@@ -1,21 +1,50 @@
 package com.emilockercustomer;
 
 import android.app.Activity;
+import android.app.admin.DevicePolicyManager;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.os.PersistableBundle;
 import android.os.Bundle;
 import android.util.Log;
 
 public class AdminPolicyComplianceActivity extends Activity {
     private static final String TAG = "CoraPolicyCompliance";
+    private static final String PREFS = "emi_prefs";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Log.i(TAG, "Admin policy compliance acknowledged");
+        persistProvisioningExtras();
         launchMainApp();
         setResult(Activity.RESULT_OK);
         finish();
+    }
+
+    private void persistProvisioningExtras() {
+        try {
+            PersistableBundle extras = getIntent().getParcelableExtra(DevicePolicyManager.EXTRA_PROVISIONING_ADMIN_EXTRAS_BUNDLE);
+
+            if (extras == null) {
+                Log.w(TAG, "Policy compliance extras were missing");
+                return;
+            }
+
+            SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            prefs.edit()
+                .putString("customerId", extras.getString("customerId", ""))
+                .putString("retailerId", extras.getString("retailerId", ""))
+                .putString("enrollmentKey", extras.getString("enrollmentKey", ""))
+                .putString("backendUrl", extras.getString("backendUrl", ""))
+                .putBoolean("provisioning_complete", true)
+                .apply();
+            Log.i(TAG, "Policy compliance extras saved for customer=" + extras.getString("customerId", ""));
+        } catch (Exception error) {
+            Log.e(TAG, "Unable to save policy compliance extras", error);
+        }
     }
 
     private void launchMainApp() {

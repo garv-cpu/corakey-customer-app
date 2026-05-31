@@ -33,3 +33,8 @@ export const startLockService = async () => {
   ensureAndroidModule();
   return DeviceAdminModule.startLockService();
 };
+
+export const applyDeviceOwnerPolicies = async () => {
+  ensureAndroidModule();
+  return DeviceAdminModule.applyDeviceOwnerPolicies();
+};
