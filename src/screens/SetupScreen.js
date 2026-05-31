@@ -53,7 +53,8 @@ export default function SetupScreen({ navigation }) {
       await initializeFcm();
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (setupError) {
-      setError(setupError.message || "Setup failed");
+      const backendMessage = setupError.response?.data?.message;
+      setError(backendMessage || setupError.message || "Setup failed");
     } finally {
       setLoading(false);
     }

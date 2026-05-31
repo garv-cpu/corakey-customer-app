@@ -5,6 +5,7 @@ import android.app.admin.DevicePolicyManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.PersistableBundle;
 import android.util.Log;
 
@@ -31,6 +32,7 @@ public class DeviceAdminReceiver extends android.app.admin.DeviceAdminReceiver {
         persistProvisioningExtras(context, intent);
         startMonitoring(context);
         context.sendBroadcast(new Intent(ACTION_PROVISIONING_DONE).setPackage(context.getPackageName()));
+        launchMainApp(context);
         Log.i(TAG, "Device owner provisioning complete");
     }
 
@@ -38,6 +40,7 @@ public class DeviceAdminReceiver extends android.app.admin.DeviceAdminReceiver {
         persistProvisioningExtras(context, intent);
         startMonitoring(context);
         context.sendBroadcast(new Intent(ACTION_PROVISIONING_DONE).setPackage(context.getPackageName()));
+        launchMainApp(context);
         Log.i(TAG, "Device owner changed");
     }
 
@@ -57,6 +60,7 @@ public class DeviceAdminReceiver extends android.app.admin.DeviceAdminReceiver {
             .putString("backendUrl", extras.getString("backendUrl", ""))
             .putBoolean("provisioning_complete", true)
             .apply();
+        Log.i(TAG, "Provisioning extras saved for customer=" + extras.getString("customerId", ""));
     }
 
     private void startMonitoring(Context context) {
@@ -65,6 +69,24 @@ public class DeviceAdminReceiver extends android.app.admin.DeviceAdminReceiver {
             context.startForegroundService(serviceIntent);
         } else {
             context.startService(serviceIntent);
+        }
+    }
+
+    private void launchMainApp(Context context) {
+        try {
+            PackageManager packageManager = context.getPackageManager();
+            Intent launchIntent = packageManager.getLaunchIntentForPackage(context.getPackageName());
+
+            if (launchIntent == null) {
+                Log.w(TAG, "Unable to launch app after provisioning: launch intent missing");
+                return;
+            }
+
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            context.startActivity(launchIntent);
+            Log.i(TAG, "Main app launched after provisioning");
+        } catch (Exception error) {
+            Log.e(TAG, "Unable to launch app after provisioning", error);
         }
     }
 }
