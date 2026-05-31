@@ -8,36 +8,75 @@ import { applyDeviceOwnerPolicies, startLockService } from "../services/deviceAd
 import { getIMEI, getProvisioningData } from "../services/provisioningService";
 import { saveCustomer, saveFcmToken, saveRegistered } from "../utils/storage";
 
+const withTimeout = (promise, timeoutMs, fallbackValue) => (
+  Promise.race([
+    promise,
+    new Promise(resolve => setTimeout(() => resolve(fallbackValue), timeoutMs))
+  ])
+);
+
+const createPendingFcmToken = () => `PENDING_FCM_${Date.now()}`;
+
 export default function SetupScreen({ navigation }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   const registerDevice = async () => {
+    let provisioningData = null;
+
+    const logSetupStep = async (step, message, details) => {
+      try {
+        await api.post("/api/devices/setup-log", {
+          step,
+          message,
+          details,
+          customerId: provisioningData?.customerId,
+          retailerId: provisioningData?.retailerId
+        });
+      } catch {
+        // Setup logging must never block enrollment.
+      }
+    };
+
     try {
       setError("");
       setLoading(true);
-      const provisioningData = await getProvisioningData();
+      provisioningData = await getProvisioningData();
 
       if (!provisioningData?.provisioningComplete) {
         throw new Error("Provisioning data is missing");
       }
 
       setBackendUrl(provisioningData.backendUrl);
-      await messaging().registerDeviceForRemoteMessages();
-      const fcmToken = await messaging().getToken();
-      const imei = await getIMEI();
+      await logSetupStep("provisioning_data_loaded", "Provisioning data loaded");
 
+      const imei = await getIMEI();
+      await logSetupStep("imei_loaded", "IMEI loaded", { hasImei: Boolean(imei && imei !== "UNKNOWN") });
+
+      await withTimeout(messaging().registerDeviceForRemoteMessages(), 8000, false);
+      const fcmToken = await withTimeout(messaging().getToken(), 10000, "");
+      const registrationToken = fcmToken || createPendingFcmToken();
+      await logSetupStep("fcm_token_loaded", fcmToken ? "FCM token loaded" : "FCM token timed out; using pending token");
+
+      await logSetupStep("backend_register_start", "Registering device with backend");
       const response = await api.post("/api/devices/register", {
         customerId: provisioningData.customerId,
         retailerId: provisioningData.retailerId,
         enrollmentKey: provisioningData.enrollmentKey,
-        fcmToken,
+        fcmToken: registrationToken,
         imei
       });
+      await logSetupStep("backend_register_success", "Backend registration succeeded");
 
       const data = response.data.data;
-      await applyDeviceOwnerPolicies();
-      await saveFcmToken(fcmToken);
+      try {
+        await applyDeviceOwnerPolicies();
+        await logSetupStep("policies_applied", "Device owner policies applied");
+      } catch (policyError) {
+        await logSetupStep("policies_failed", policyError.message || "Device owner policy apply failed");
+      }
+
+      await saveFcmToken(registrationToken);
       await saveCustomer({
         customerId: data.customerId || provisioningData.customerId,
         retailerId: provisioningData.retailerId,
@@ -50,11 +89,26 @@ export default function SetupScreen({ navigation }) {
         imei
       });
       await saveRegistered(true);
-      await startLockService();
-      await initializeFcm();
+      await logSetupStep("local_state_saved", "Local enrollment state saved");
+
+      try {
+        await startLockService();
+        await logSetupStep("lock_service_started", "Lock foreground service started");
+      } catch (serviceError) {
+        await logSetupStep("lock_service_failed", serviceError.message || "Lock service failed");
+      }
+
+      try {
+        await initializeFcm();
+        await logSetupStep("fcm_initialized", "FCM initialized");
+      } catch (fcmError) {
+        await logSetupStep("fcm_initialize_failed", fcmError.message || "FCM initialize failed");
+      }
+
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (setupError) {
       const backendMessage = setupError.response?.data?.message;
+      await logSetupStep("setup_failed", backendMessage || setupError.message || "Setup failed");
       setError(backendMessage || setupError.message || "Setup failed");
     } finally {
       setLoading(false);
