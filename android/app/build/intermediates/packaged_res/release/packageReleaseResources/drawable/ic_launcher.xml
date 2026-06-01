@@ -1,0 +1,13 @@
+<!-- Simple vector launcher icon so the Android project builds before custom branding is added. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#0B1117"
+        android:pathData="M6,6h36v36h-36z" />
+    <path
+        android:fillColor="#19C37D"
+        android:pathData="M14,12h20v6h-13v5h11v6h-11v7h-7z" />
+</vector>

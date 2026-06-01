@@ -1,0 +1,34 @@
+[
+    {
+        "merged": "com.emilockercustomer.app-release-48:/drawable-mdpi_node_modules_reactnavigation_elements_src_assets_backicon.png.flat",
+        "source": "com.emilockercustomer.app-res-42:/drawable-mdpi/node_modules_reactnavigation_elements_src_assets_backicon.png"
+    },
+    {
+        "merged": "com.emilockercustomer.app-release-48:/drawable-mdpi_node_modules_reactnavigation_elements_src_assets_backiconmask.png.flat",
+        "source": "com.emilockercustomer.app-res-42:/drawable-mdpi/node_modules_reactnavigation_elements_src_assets_backiconmask.png"
+    },
+    {
+        "merged": "com.emilockercustomer.app-release-48:/drawable_ic_launcher.xml.flat",
+        "source": "com.emilockercustomer.app-main-49:/drawable/ic_launcher.xml"
+    },
+    {
+        "merged": "com.emilockercustomer.app-release-48:/drawable-xhdpi_node_modules_reactnavigation_elements_src_assets_backicon.png.flat",
+        "source": "com.emilockercustomer.app-res-42:/drawable-xhdpi/node_modules_reactnavigation_elements_src_assets_backicon.png"
+    },
+    {
+        "merged": "com.emilockercustomer.app-release-48:/drawable-xxxhdpi_node_modules_reactnavigation_elements_src_assets_backicon.png.flat",
+        "source": "com.emilockercustomer.app-res-42:/drawable-xxxhdpi/node_modules_reactnavigation_elements_src_assets_backicon.png"
+    },
+    {
+        "merged": "com.emilockercustomer.app-release-48:/drawable-xxhdpi_node_modules_reactnavigation_elements_src_assets_backicon.png.flat",
+        "source": "com.emilockercustomer.app-res-42:/drawable-xxhdpi/node_modules_reactnavigation_elements_src_assets_backicon.png"
+    },
+    {
+        "merged": "com.emilockercustomer.app-release-48:/drawable-hdpi_node_modules_reactnavigation_elements_src_assets_backicon.png.flat",
+        "source": "com.emilockercustomer.app-res-42:/drawable-hdpi/node_modules_reactnavigation_elements_src_assets_backicon.png"
+    },
+    {
+        "merged": "com.emilockercustomer.app-release-48:/xml_device_admin.xml.flat",
+        "source": "com.emilockercustomer.app-main-49:/xml/device_admin.xml"
+    }
+]
