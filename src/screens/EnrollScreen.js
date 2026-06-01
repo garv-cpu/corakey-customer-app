@@ -22,7 +22,7 @@ export default function EnrollScreen({ navigation }) {
       await messaging().registerDeviceForRemoteMessages();
       const fcmToken = await messaging().getToken();
 
-      const response = await api.post("/api/devices/register", {
+      const response = await api.post("/devices/register", {
         enrollmentCode: enrollmentCode.trim(),
         fcmToken,
         imei: imei.trim() || "UNKNOWN"

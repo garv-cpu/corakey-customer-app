@@ -3,7 +3,7 @@ import messaging from "@react-native-firebase/messaging";
 import { PermissionsAndroid, Platform } from "react-native";
 import api from "./api";
 import { lockScreen } from "./deviceAdmin";
-import { clearLockState, getCustomer, getFcmToken, saveFcmToken, saveLockState } from "../utils/storage";
+import { clearLockState, getCustomer, getFcmToken as getStoredFcmToken, saveFcmToken, saveLockState } from "../utils/storage";
 import { navigateSafely } from "./navigation";
 
 const requestNotificationPermission = async () => {
@@ -34,7 +34,19 @@ const registerTokenWithBackend = async token => {
     payload.enrollmentCode = customer.enrollmentCode;
   }
 
-  await api.post("/api/devices/register", payload);
+  await api.post("/devices/register", payload);
+};
+
+export const getFcmToken = async () => {
+  try {
+    await requestNotificationPermission();
+    await messaging().registerDeviceForRemoteMessages();
+    const token = await messaging().getToken();
+    return token || null;
+  } catch (error) {
+    console.warn("[FCM] getFcmToken failed:", error.message);
+    return null;
+  }
 };
 
 export const handleLockCommand = async remoteMessage => {
@@ -58,11 +70,8 @@ export const handleLockCommand = async remoteMessage => {
 };
 
 export const initializeFcm = async () => {
-  await requestNotificationPermission();
-  await messaging().registerDeviceForRemoteMessages();
-
-  const token = await messaging().getToken();
-  const previousToken = await getFcmToken();
+  const token = await getFcmToken();
+  const previousToken = await getStoredFcmToken();
 
   if (token && token !== previousToken) {
     await saveFcmToken(token);

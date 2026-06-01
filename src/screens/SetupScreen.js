@@ -1,137 +1,319 @@
 // One-time setup after Android Device Owner provisioning completes.
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import messaging from "@react-native-firebase/messaging";
+import React, { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, NativeModules, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import api, { setBackendUrl } from "../services/api";
-import { initializeFcm } from "../services/fcmService";
+import { getFcmToken, initializeFcm } from "../services/fcmService";
+import { navigationRef } from "../services/navigation";
 import { applyDeviceOwnerPolicies, startLockService } from "../services/deviceAdmin";
-import { getIMEI, getProvisioningData } from "../services/provisioningService";
 import { saveCustomer, saveFcmToken, saveRegistered } from "../utils/storage";
 
-const withTimeout = (promise, timeoutMs, fallbackValue) => (
-  Promise.race([
-    promise,
-    new Promise(resolve => setTimeout(() => resolve(fallbackValue), timeoutMs))
-  ])
-);
+const { DeviceAdminModule } = NativeModules;
 
-const createPendingFcmToken = () => `PENDING_FCM_${Date.now()}`;
+const SETUP_STEPS = [
+  "Loading provisioning data...",
+  "Reading device info...",
+  "Connecting to server...",
+  "Registering device...",
+  "Applying security policies...",
+  "Finalizing setup..."
+];
 
-export default function SetupScreen({ navigation }) {
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-  const registerDevice = async () => {
-    let provisioningData = null;
+export default function SetupScreen() {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [logs, setLogs] = useState([]);
+  const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const setupRan = useRef(false);
 
-    const logSetupStep = async (step, message, details) => {
-      try {
-        await api.post("/api/devices/setup-log", {
-          step,
-          message,
-          details,
-          customerId: provisioningData?.customerId,
-          retailerId: provisioningData?.retailerId
-        });
-      } catch {
-        // Setup logging must never block enrollment.
-      }
-    };
+  const addLog = msg => {
+    console.log("[SetupScreen]", msg);
+    setLogs(prev => [...prev, msg]);
+  };
+
+  const logToBackend = async (step, data = {}) => {
+    try {
+      await api.post("/devices/setup-log", {
+        step,
+        ...data,
+        timestamp: new Date().toISOString()
+      });
+    } catch (logError) {
+      console.warn("[SetupScreen] backend log failed:", logError.message);
+    }
+  };
+
+  const runSetup = async () => {
+    if (setupRan.current) return;
+    setupRan.current = true;
+
+    let provData = null;
 
     try {
-      setError("");
-      setLoading(true);
-      provisioningData = await getProvisioningData();
+      setError(null);
+      setCurrentStep(0);
+      addLog("Loading provisioning data from device...");
 
-      if (!provisioningData?.provisioningComplete) {
-        throw new Error("Provisioning data is missing");
+      await wait(500);
+      provData = await DeviceAdminModule.getProvisioningData();
+
+      if (provData?.backendUrl) {
+        setBackendUrl(provData.backendUrl);
       }
 
-      setBackendUrl(provisioningData.backendUrl);
-      await logSetupStep("provisioning_data_loaded", "Provisioning data loaded");
+      addLog(`Provisioning data: ${JSON.stringify({
+        hasCustomerId: Boolean(provData?.customerId),
+        hasRetailerId: Boolean(provData?.retailerId),
+        hasEnrollmentKey: Boolean(provData?.enrollmentKey),
+        hasBackendUrl: Boolean(provData?.backendUrl),
+        source: provData?.source || "unknown"
+      })}`);
 
-      const imei = await getIMEI();
-      await logSetupStep("imei_loaded", "IMEI loaded", { hasImei: Boolean(imei && imei !== "UNKNOWN") });
-
-      await withTimeout(messaging().registerDeviceForRemoteMessages(), 8000, false);
-      const fcmToken = await withTimeout(messaging().getToken(), 10000, "");
-      const registrationToken = fcmToken || createPendingFcmToken();
-      await logSetupStep("fcm_token_loaded", fcmToken ? "FCM token loaded" : "FCM token timed out; using pending token");
-
-      await logSetupStep("backend_register_start", "Registering device with backend");
-      const response = await api.post("/api/devices/register", {
-        customerId: provisioningData.customerId,
-        retailerId: provisioningData.retailerId,
-        enrollmentKey: provisioningData.enrollmentKey,
-        fcmToken: registrationToken,
-        imei
+      await logToBackend("provisioning_data_loaded", {
+        customerId: provData?.customerId || null,
+        retailerId: provData?.retailerId || null,
+        hasEnrollmentKey: Boolean(provData?.enrollmentKey),
+        source: provData?.source || "unknown"
       });
-      await logSetupStep("backend_register_success", "Backend registration succeeded");
 
-      const data = response.data.data;
-      try {
-        await applyDeviceOwnerPolicies();
-        await logSetupStep("policies_applied", "Device owner policies applied");
-      } catch (policyError) {
-        await logSetupStep("policies_failed", policyError.message || "Device owner policy apply failed");
+      if (!provData?.customerId || !provData?.enrollmentKey) {
+        throw new Error("Provisioning data is missing customerId or enrollmentKey");
       }
 
-      await saveFcmToken(registrationToken);
+      setCurrentStep(1);
+      addLog("Reading device IMEI...");
+
+      let imei = "UNKNOWN";
+      try {
+        imei = await DeviceAdminModule.getIMEI() || "UNKNOWN";
+        addLog(`IMEI loaded: ${imei !== "UNKNOWN" ? "yes" : "unavailable"}`);
+      } catch (imeiError) {
+        addLog(`IMEI unavailable (using fallback): ${imeiError.message}`);
+      }
+
+      await logToBackend("imei_loaded", {
+        customerId: provData.customerId,
+        imeiAvailable: imei !== "UNKNOWN"
+      });
+
+      setCurrentStep(2);
+      addLog("Getting FCM token (non-blocking)...");
+
+      let fcmToken = null;
+      try {
+        const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), 5000));
+        fcmToken = await Promise.race([getFcmToken(), timeoutPromise]);
+        addLog(`FCM token: ${fcmToken ? "loaded" : "timed out - using pending"}`);
+      } catch (fcmError) {
+        addLog(`FCM error (using pending): ${fcmError.message}`);
+      }
+
+      const tokenToUse = fcmToken || `PENDING_FCM_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      await logToBackend("fcm_token_loaded", {
+        customerId: provData.customerId,
+        tokenReady: Boolean(fcmToken)
+      });
+
+      setCurrentStep(3);
+      addLog("Registering device with server...");
+
+      await logToBackend("backend_register_start", {
+        customerId: provData.customerId,
+        retailerId: provData.retailerId,
+        hasEnrollmentKey: Boolean(provData.enrollmentKey),
+        imei: imei !== "UNKNOWN" ? "present" : "missing",
+        fcmReady: Boolean(fcmToken)
+      });
+
+      let registerResponse = null;
+      let lastRegisterError = null;
+
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          addLog(`Register attempt ${attempt}/3...`);
+
+          const response = await api.post("/devices/register", {
+            customerId: provData.customerId,
+            retailerId: provData.retailerId,
+            enrollmentKey: provData.enrollmentKey,
+            enrollmentCode: provData.enrollmentKey,
+            fcmToken: tokenToUse,
+            imei
+          });
+
+          registerResponse = response.data;
+          addLog(`Registration SUCCESS on attempt ${attempt}`);
+          break;
+        } catch (registerError) {
+          lastRegisterError = registerError;
+          addLog(`Register attempt ${attempt} failed: ${registerError.response?.data?.message || registerError.message}`);
+
+          if (attempt < 3) {
+            addLog("Waiting 2s before retry...");
+            await wait(2000);
+          }
+        }
+      }
+
+      if (!registerResponse?.success) {
+        throw new Error(
+          lastRegisterError?.response?.data?.message
+          || lastRegisterError?.message
+          || "Registration failed after 3 attempts"
+        );
+      }
+
+      await logToBackend("backend_register_success", {
+        customerId: provData.customerId
+      });
+
+      setCurrentStep(4);
+      addLog("Applying security policies...");
+
+      try {
+        const isOwner = await DeviceAdminModule.isDeviceOwner();
+        addLog(`Device owner status: ${isOwner}`);
+        await applyDeviceOwnerPolicies();
+      } catch (policyError) {
+        addLog(`Policy apply skipped/failed: ${policyError.message}`);
+      }
+
+      await logToBackend("policies_applied", {
+        customerId: provData.customerId
+      });
+
+      setCurrentStep(5);
+      addLog("Saving local state...");
+
+      const responseData = registerResponse.data || {};
+      const device = responseData.device || responseData.deviceStatus || {};
+
+      await AsyncStorage.multiSet([
+        ["registered", "true"],
+        ["customerId", responseData.customerId || provData.customerId || ""],
+        ["customerName", responseData.customerName || ""],
+        ["shopName", responseData.shopName || ""],
+        ["emiAmount", String(responseData.overdueAmount || 0)],
+        ["locked", device.isLocked ? "true" : "false"],
+        ["fcmToken", tokenToUse]
+      ]);
+
+      await saveFcmToken(tokenToUse);
       await saveCustomer({
-        customerId: data.customerId || provisioningData.customerId,
-        retailerId: provisioningData.retailerId,
-        enrollmentKey: provisioningData.enrollmentKey,
-        backendUrl: provisioningData.backendUrl,
-        customerName: data.customerName,
-        shopName: data.shopName,
-        retailerPhone: data.retailerPhone,
-        overdueAmount: data.overdueAmount,
+        customerId: responseData.customerId || provData.customerId,
+        retailerId: provData.retailerId,
+        enrollmentKey: provData.enrollmentKey,
+        backendUrl: provData.backendUrl,
+        customerName: responseData.customerName,
+        shopName: responseData.shopName,
+        retailerPhone: responseData.retailerPhone,
+        overdueAmount: responseData.overdueAmount,
         imei
       });
       await saveRegistered(true);
-      await logSetupStep("local_state_saved", "Local enrollment state saved");
 
+      try {
+        await DeviceAdminModule.clearProvisioningFile();
+      } catch {
+        // Cleanup is best effort.
+      }
+
+      await logToBackend("local_state_saved", {
+        customerId: provData.customerId
+      });
+
+      addLog("Starting lock service...");
       try {
         await startLockService();
-        await logSetupStep("lock_service_started", "Lock foreground service started");
       } catch (serviceError) {
-        await logSetupStep("lock_service_failed", serviceError.message || "Lock service failed");
+        addLog(`Lock service start failed: ${serviceError.message}`);
       }
 
-      try {
-        await initializeFcm();
-        await logSetupStep("fcm_initialized", "FCM initialized");
-      } catch (fcmError) {
-        await logSetupStep("fcm_initialize_failed", fcmError.message || "FCM initialize failed");
-      }
+      initializeFcm().then(async realToken => {
+        if (realToken && realToken !== tokenToUse) {
+          try {
+            await api.post("/devices/register", {
+              customerId: provData.customerId,
+              enrollmentKey: provData.enrollmentKey,
+              fcmToken: realToken,
+              imei
+            });
+            await AsyncStorage.setItem("fcmToken", realToken);
+            await saveFcmToken(realToken);
+            addLog("FCM token updated with real token");
+          } catch (tokenError) {
+            console.warn("FCM token update failed:", tokenError.message);
+          }
+        }
+      }).catch(fcmError => console.warn("FCM init background error:", fcmError.message));
 
-      navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+      await logToBackend("lock_service_started", {
+        customerId: provData.customerId
+      });
+
+      addLog("Setup complete! Launching app...");
+      await wait(1000);
+
+      navigationRef.current?.reset({
+        index: 0,
+        routes: [{ name: device.isLocked ? "Lock" : "Home" }]
+      });
     } catch (setupError) {
-      const backendMessage = setupError.response?.data?.message;
-      await logSetupStep("setup_failed", backendMessage || setupError.message || "Setup failed");
-      setError(backendMessage || setupError.message || "Setup failed");
-    } finally {
-      setLoading(false);
+      console.error("[SetupScreen] setup failed:", setupError);
+      addLog(`ERROR: ${setupError.message}`);
+
+      await logToBackend("setup_failed", {
+        customerId: provData?.customerId,
+        retailerId: provData?.retailerId,
+        error: setupError.message
+      }).catch(() => {});
+
+      setError(setupError.message);
     }
   };
 
   useEffect(() => {
-    registerDevice();
-  }, []);
+    runSetup();
+  }, [retryCount]);
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.title}>Setup needs attention</Text>
+        <Text style={styles.errorMsg}>{error}</Text>
+        <ScrollView style={styles.logBox}>
+          {logs.map((log, index) => (
+            <Text key={`${log}-${index}`} style={styles.logLine}>{log}</Text>
+          ))}
+        </ScrollView>
+        <TouchableOpacity
+          style={styles.retryBtn}
+          onPress={() => {
+            setError(null);
+            setLogs([]);
+            setupRan.current = false;
+            setRetryCount(count => count + 1);
+          }}
+        >
+          <Text style={styles.retryBtnText}>Retry Setup</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <View style={styles.icon}><Text style={styles.iconText}>EMI</Text></View>
-      <Text style={styles.title}>Setting up your device...</Text>
-      {loading ? <ActivityIndicator color="#22c55e" size="large" /> : null}
-      {error ? (
-        <>
-          <Text style={styles.error}>{error}. Contact your retailer if this persists.</Text>
-          <TouchableOpacity style={styles.button} onPress={registerDevice}>
-            <Text style={styles.buttonText}>Retry</Text>
-          </TouchableOpacity>
-        </>
-      ) : null}
+      <Text style={styles.title}>Setting up your device</Text>
+      <Text style={styles.step}>{SETUP_STEPS[currentStep]}</Text>
+      <ActivityIndicator size="large" color="#22c55e" style={{ marginTop: 24 }} />
+      <ScrollView style={styles.logBox}>
+        {logs.map((log, index) => (
+          <Text key={`${log}-${index}`} style={styles.logLine}>{log}</Text>
+        ))}
+      </ScrollView>
     </View>
   );
 }
@@ -139,45 +321,48 @@ export default function SetupScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: "center",
+    backgroundColor: "#0f172a",
     justifyContent: "center",
-    backgroundColor: "#f8fafc",
     padding: 24
   },
-  icon: {
-    width: 76,
-    height: 76,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0f172a",
-    marginBottom: 22
-  },
-  iconText: {
-    color: "#22c55e",
-    fontWeight: "900"
-  },
   title: {
-    color: "#0f172a",
+    color: "#fff",
     fontSize: 22,
     fontWeight: "900",
-    marginBottom: 20
+    marginBottom: 8
   },
-  error: {
-    marginTop: 16,
-    color: "#ef4444",
-    textAlign: "center",
-    lineHeight: 22
+  step: {
+    color: "#94a3b8",
+    fontSize: 15
   },
-  button: {
-    marginTop: 18,
+  logBox: {
+    marginTop: 24,
+    maxHeight: 220,
+    backgroundColor: "#1e293b",
     borderRadius: 8,
-    backgroundColor: "#0f172a",
-    paddingHorizontal: 18,
-    paddingVertical: 12
+    padding: 8
   },
-  buttonText: {
-    color: "#fff",
-    fontWeight: "800"
+  logLine: {
+    color: "#94a3b8",
+    fontSize: 11,
+    lineHeight: 18
+  },
+  errorMsg: {
+    color: "#fca5a5",
+    fontSize: 14,
+    marginVertical: 12,
+    lineHeight: 20
+  },
+  retryBtn: {
+    backgroundColor: "#22c55e",
+    padding: 14,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 16
+  },
+  retryBtnText: {
+    color: "#0f172a",
+    fontWeight: "900",
+    fontSize: 16
   }
 });

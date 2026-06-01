@@ -13,6 +13,10 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.telephony.TelephonyManager;
 import androidx.core.content.ContextCompat;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import org.json.JSONObject;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
@@ -22,6 +26,8 @@ import com.facebook.react.bridge.Arguments;
 
 public class DeviceAdminModule extends ReactContextBaseJavaModule {
     private static final String PREFS = "emi_prefs";
+    private static final String LOG_TAG = "EMILocker";
+    private static final String PROVISIONING_FILE = "emi_provisioning.json";
     private final ReactApplicationContext reactContext;
 
     public DeviceAdminModule(ReactApplicationContext reactContext) {
@@ -76,15 +82,61 @@ public class DeviceAdminModule extends ReactContextBaseJavaModule {
     public void getProvisioningData(Promise promise) {
         try {
             SharedPreferences prefs = reactContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            String source = "shared_preferences";
+            String customerId = prefs.getString("customerId", "");
+            String retailerId = prefs.getString("retailerId", "");
+            String enrollmentKey = prefs.getString("enrollmentKey", "");
+            String backendUrl = prefs.getString("backendUrl", "");
+            boolean provisioningComplete = prefs.getBoolean("provisioning_complete", false);
+            long provisioningTimestamp = prefs.getLong("provisioning_timestamp", 0L);
+
+            if (customerId == null || customerId.isEmpty()) {
+                File file = new File(reactContext.getFilesDir(), PROVISIONING_FILE);
+                if (file.exists()) {
+                    String raw = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+                    JSONObject json = new JSONObject(raw);
+                    source = "json_file";
+                    customerId = json.optString("customerId", "");
+                    retailerId = json.optString("retailerId", "");
+                    enrollmentKey = json.optString("enrollmentKey", "");
+                    backendUrl = json.optString("backendUrl", "");
+                    provisioningComplete = json.optBoolean("provisioningComplete", json.optBoolean("provisioning_complete", false));
+                    provisioningTimestamp = json.optLong("provisioning_timestamp", 0L);
+                }
+            }
+
+            android.util.Log.d(LOG_TAG, "Provisioning data source: " + source);
+            android.util.Log.d(LOG_TAG, "customerId found: " + (customerId != null && !customerId.isEmpty()));
+
             WritableMap map = Arguments.createMap();
-            map.putString("customerId", prefs.getString("customerId", ""));
-            map.putString("retailerId", prefs.getString("retailerId", ""));
-            map.putString("enrollmentKey", prefs.getString("enrollmentKey", ""));
-            map.putString("backendUrl", prefs.getString("backendUrl", ""));
-            map.putBoolean("provisioningComplete", prefs.getBoolean("provisioning_complete", false));
+            map.putString("customerId", customerId != null ? customerId : "");
+            map.putString("retailerId", retailerId != null ? retailerId : "");
+            map.putString("enrollmentKey", enrollmentKey != null ? enrollmentKey : "");
+            map.putString("backendUrl", backendUrl != null ? backendUrl : "");
+            map.putBoolean("provisioningComplete", provisioningComplete);
+            map.putString("source", source);
+            map.putDouble("provisioningTimestamp", provisioningTimestamp);
             promise.resolve(map);
         } catch (Exception error) {
-            promise.reject("PROVISIONING_DATA_FAILED", error);
+            WritableMap map = Arguments.createMap();
+            map.putString("customerId", "");
+            map.putString("retailerId", "");
+            map.putString("enrollmentKey", "");
+            map.putString("backendUrl", "");
+            map.putBoolean("provisioningComplete", false);
+            map.putString("source", "none");
+            promise.resolve(map);
+        }
+    }
+
+    @ReactMethod
+    public void clearProvisioningFile(Promise promise) {
+        try {
+            File file = new File(reactContext.getFilesDir(), PROVISIONING_FILE);
+            boolean deleted = !file.exists() || file.delete();
+            promise.resolve(deleted);
+        } catch (Exception error) {
+            promise.reject("PROVISIONING_FILE_CLEAR_FAILED", error);
         }
     }
 

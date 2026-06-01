@@ -21,7 +21,7 @@ export default function HomeScreen() {
 
         if (savedCustomer?.customerId) {
           try {
-            const response = await api.get(`/api/emis/${savedCustomer.customerId}`);
+            const response = await api.get(`/emis/${savedCustomer.customerId}`);
             const pendingEmi = response.data.data.find(emi => emi.status !== "paid");
             setNextEmi(pendingEmi || null);
           } catch (error) {

@@ -1,61 +1,73 @@
 // First screen; routes based on provisioning, registration, and lock state.
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { getLockState, isRegistered } from "../utils/storage";
-import { getProvisioningData } from "../services/provisioningService";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { NativeModules } from "react-native";
+
+const { DeviceAdminModule } = NativeModules;
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 export default function SplashScreen({ navigation }) {
-  const [waiting, setWaiting] = useState(false);
-  const [setupAvailable, setSetupAvailable] = useState(false);
+  const [message, setMessage] = useState("Starting EMI Locker");
 
   useEffect(() => {
-    const route = async () => {
-      const [registered, lockState, provisioningData] = await Promise.all([
-        isRegistered(),
-        getLockState(),
-        getProvisioningData()
-      ]);
+    const checkAppState = async () => {
+      try {
+        const registered = await AsyncStorage.getItem("registered");
+        const legacyRegistered = await AsyncStorage.getItem("cora.registered");
+        const customerId = await AsyncStorage.getItem("customerId");
+        const legacyCustomerRaw = await AsyncStorage.getItem("cora.customer");
+        const legacyCustomer = legacyCustomerRaw ? JSON.parse(legacyCustomerRaw) : null;
 
-      setTimeout(() => {
-        if (registered && lockState === "LOCKED") {
-          navigation.reset({ index: 0, routes: [{ name: "Lock" }] });
+        if ((registered === "true" || legacyRegistered === "true") && (customerId || legacyCustomer?.customerId)) {
+          const locked = await AsyncStorage.getItem("locked");
+          const legacyLocked = await AsyncStorage.getItem("cora.lockState");
+
+          if (locked === "true" || legacyLocked === "LOCKED") {
+            navigation.replace("Lock");
+          } else {
+            navigation.replace("Home");
+          }
           return;
         }
 
-        if (registered) {
-          navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+        setMessage("Checking provisioning data");
+        await wait(800);
+
+        const provisioningData = await DeviceAdminModule.getProvisioningData();
+        console.log("[SplashScreen] provisioning data:", JSON.stringify(provisioningData));
+
+        if (provisioningData?.provisioningComplete === true || provisioningData?.provisioningComplete === "true") {
+          navigation.replace("Setup");
           return;
         }
 
-        const hasProvisioningData = Boolean(
-          provisioningData?.provisioningComplete
-          && provisioningData?.customerId
-          && provisioningData?.enrollmentKey
-          && provisioningData?.backendUrl
-        );
-        setSetupAvailable(hasProvisioningData);
+        setMessage("Waiting for provisioning data");
+        await wait(2000);
 
-        if (hasProvisioningData) {
-          navigation.reset({ index: 0, routes: [{ name: "Setup" }] });
+        const retryData = await DeviceAdminModule.getProvisioningData();
+        console.log("[SplashScreen] retry provisioning data:", JSON.stringify(retryData));
+
+        if (retryData?.provisioningComplete === true || retryData?.provisioningComplete === "true") {
+          navigation.replace("Setup");
           return;
         }
 
-        setWaiting(true);
-      }, 800);
+        navigation.replace("Setup");
+      } catch (error) {
+        console.error("[SplashScreen] error:", error);
+        navigation.replace("Setup");
+      }
     };
 
-    route();
+    checkAppState();
   }, [navigation]);
 
   return (
     <View style={styles.container}>
       <ActivityIndicator color="#22c55e" size="large" />
-      <Text style={styles.title}>{waiting ? "Waiting for enrollment" : "Starting EMI Locker"}</Text>
-      {waiting && setupAvailable ? (
-        <TouchableOpacity style={styles.button} onPress={() => navigation.reset({ index: 0, routes: [{ name: "Setup" }] })}>
-          <Text style={styles.buttonText}>Continue Setup</Text>
-        </TouchableOpacity>
-      ) : null}
+      <Text style={styles.title}>{message}</Text>
     </View>
   );
 }
@@ -73,16 +85,5 @@ const styles = StyleSheet.create({
     color: "#e2e8f0",
     fontSize: 18,
     fontWeight: "800"
-  },
-  button: {
-    marginTop: 18,
-    borderRadius: 8,
-    backgroundColor: "#22c55e",
-    paddingHorizontal: 18,
-    paddingVertical: 12
-  },
-  buttonText: {
-    color: "#0f172a",
-    fontWeight: "900"
   }
 });
