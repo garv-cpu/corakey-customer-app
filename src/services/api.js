@@ -8,7 +8,7 @@ const normalizeBackendUrl = url => {
 };
 
 export const getBackendUrl = () => {
-  const envUrl = process.env.BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || Config.BACKEND_URL;
+  const envUrl = Config.BACKEND_URL;
   if (envUrl) return envUrl;
   return "https://corakey-backend.onrender.com";
 };

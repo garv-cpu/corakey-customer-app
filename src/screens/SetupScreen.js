@@ -20,6 +20,37 @@ const SETUP_STEPS = [
 ];
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const getSafeProvisioningData = async () => {
+  if (!DeviceAdminModule?.getProvisioningData) {
+    return { provisioningComplete: false, source: "native_module_missing" };
+  }
+
+  return DeviceAdminModule.getProvisioningData();
+};
+
+const getSafeIMEI = async () => {
+  if (!DeviceAdminModule?.getIMEI) {
+    return "UNKNOWN";
+  }
+
+  return DeviceAdminModule.getIMEI();
+};
+
+const isSafeDeviceOwner = async () => {
+  if (!DeviceAdminModule?.isDeviceOwner) {
+    return false;
+  }
+
+  return DeviceAdminModule.isDeviceOwner();
+};
+
+const clearSafeProvisioningFile = async () => {
+  if (!DeviceAdminModule?.clearProvisioningFile) {
+    return false;
+  }
+
+  return DeviceAdminModule.clearProvisioningFile();
+};
 
 export default function SetupScreen() {
   const [currentStep, setCurrentStep] = useState(0);
@@ -57,7 +88,7 @@ export default function SetupScreen() {
       addLog("Loading provisioning data from device...");
 
       await wait(500);
-      provData = await DeviceAdminModule.getProvisioningData();
+      provData = await getSafeProvisioningData();
 
       if (provData?.backendUrl) {
         setBackendUrl(provData.backendUrl);
@@ -70,6 +101,7 @@ export default function SetupScreen() {
         hasBackendUrl: Boolean(provData?.backendUrl),
         source: provData?.source || "unknown"
       })}`);
+      addLog(`Raw enrollment key: ${provData?.enrollmentKey || "EMPTY"}`);
 
       await logToBackend("provisioning_data_loaded", {
         customerId: provData?.customerId || null,
@@ -87,7 +119,7 @@ export default function SetupScreen() {
 
       let imei = "UNKNOWN";
       try {
-        imei = await DeviceAdminModule.getIMEI() || "UNKNOWN";
+        imei = await getSafeIMEI() || "UNKNOWN";
         addLog(`IMEI loaded: ${imei !== "UNKNOWN" ? "yes" : "unavailable"}`);
       } catch (imeiError) {
         addLog(`IMEI unavailable (using fallback): ${imeiError.message}`);
@@ -174,7 +206,7 @@ export default function SetupScreen() {
       addLog("Applying security policies...");
 
       try {
-        const isOwner = await DeviceAdminModule.isDeviceOwner();
+        const isOwner = await isSafeDeviceOwner();
         addLog(`Device owner status: ${isOwner}`);
         await applyDeviceOwnerPolicies();
       } catch (policyError) {
@@ -216,7 +248,7 @@ export default function SetupScreen() {
       await saveRegistered(true);
 
       try {
-        await DeviceAdminModule.clearProvisioningFile();
+        await clearSafeProvisioningFile();
       } catch {
         // Cleanup is best effort.
       }

@@ -7,6 +7,13 @@ import { NativeModules } from "react-native";
 const { DeviceAdminModule } = NativeModules;
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const getSafeProvisioningData = async () => {
+  if (!DeviceAdminModule?.getProvisioningData) {
+    return { provisioningComplete: false, source: "native_module_missing" };
+  }
+
+  return DeviceAdminModule.getProvisioningData();
+};
 
 export default function SplashScreen({ navigation }) {
   const [message, setMessage] = useState("Starting EMI Locker");
@@ -35,7 +42,7 @@ export default function SplashScreen({ navigation }) {
         setMessage("Checking provisioning data");
         await wait(800);
 
-        const provisioningData = await DeviceAdminModule.getProvisioningData();
+        const provisioningData = await getSafeProvisioningData();
         console.log("[SplashScreen] provisioning data:", JSON.stringify(provisioningData));
 
         if (provisioningData?.provisioningComplete === true || provisioningData?.provisioningComplete === "true") {
@@ -46,7 +53,7 @@ export default function SplashScreen({ navigation }) {
         setMessage("Waiting for provisioning data");
         await wait(2000);
 
-        const retryData = await DeviceAdminModule.getProvisioningData();
+        const retryData = await getSafeProvisioningData();
         console.log("[SplashScreen] retry provisioning data:", JSON.stringify(retryData));
 
         if (retryData?.provisioningComplete === true || retryData?.provisioningComplete === "true") {
